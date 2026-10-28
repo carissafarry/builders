@@ -42,3 +42,8 @@ jobs:
         run: npx next build
         env:
           NEXT_PUBLIC_SITE: oss
+
+      - name: Test the open source site
+        run: npm run test:rendered
+        env:
+          NEXT_PUBLIC_SITE: oss

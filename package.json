@@ -23,6 +23,7 @@
     "test": "next build && node --test --experimental-strip-types --import ./tests/ts-imports.mjs \"tests/**/*.test.mjs\"",
     "theme:colors": "node scripts/dark-colors.mjs",
     "db:seed": "node --experimental-strip-types scripts/generate-seed-sql.mjs",
+    "test:rendered": "node --test tests/rendered-html.test.mjs",
     "test:unit": "node --test --experimental-strip-types --import ./tests/ts-imports.mjs tests/badges.test.mjs tests/brief.test.mjs tests/leaderboard.test.mjs tests/dark-colors.test.mjs tests/directory.test.mjs tests/directory-url.test.mjs tests/domain.test.mjs tests/feedback.test.mjs tests/github.test.mjs tests/github-activity.test.mjs tests/github-profile.test.mjs tests/reactions.test.mjs tests/link-metadata.test.mjs tests/next-steps.test.mjs tests/open-source.test.mjs tests/oss.test.mjs tests/profile.test.mjs tests/project-types.test.mjs tests/repo-signals.test.mjs tests/resilient-fetch.test.mjs tests/urls.test.mjs"
   },
   "dependencies": {
