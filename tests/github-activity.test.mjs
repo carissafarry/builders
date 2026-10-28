@@ -357,3 +357,44 @@ test("a login that now belongs to another account than the one linked is not the
   const [taken] = parseResponse([linked], { data: { u0: { login: "fajarhide", databaseId: 9999 }, p0: { issueCount: 0, nodes: [] } } }, now);
   assert.equal(taken.found, false);
 });
+
+test("a repository the member wrote nearly alone is their own work, whoever owns it", async () => {
+  const { authorQuestions, buildAuthorQuery, mainAuthorsOf, parseResponse } = await import("../supabase/functions/refresh-github-activity/activity.ts");
+  const now = new Date("2026-10-28T00:00:00Z");
+  const member = { id: "11111111-1111-4111-8111-111111111111", handle: "Rhyanz46" };
+  const pr = (repo, number) => ({
+    url: `https://github.com/${repo}/pull/${number}`, number, title: "Work", state: "MERGED",
+    createdAt: "2026-10-20T00:00:00Z", mergedAt: "2026-10-21T00:00:00Z",
+    // A private membership: GitHub calls the author a mere contributor.
+    authorAssociation: "CONTRIBUTOR",
+    repository: { nameWithOwner: repo, isPrivate: false, owner: { login: repo.split("/")[0] } },
+  });
+  const body = { data: {
+    u0: { login: "Rhyanz46", organizations: { nodes: [] }, contributionsCollection: { commitContributionsByRepository: [
+      { repository: { nameWithOwner: "go-routine-id/flowmaid", isPrivate: false, owner: { login: "go-routine-id" } }, contributions: { totalCount: 12, nodes: [{ occurredAt: "2026-10-21T00:00:00Z" }] } },
+    ] } },
+    p0: { issueCount: 3, nodes: [pr("go-routine-id/flowmaid", 1), pr("ahmadrosid/nakama", 2), pr("busy/shared", 3)] },
+  } };
+
+  const first = parseResponse([member], body, now);
+  const repos = authorQuestions(first);
+  assert.deepEqual(repos, ["ahmadrosid/nakama", "busy/shared", "go-routine-id/flowmaid"]);
+  assert.match(buildAuthorQuery(repos), /a2: repository\(owner: "go-routine-id", name: "flowmaid"\)/);
+
+  const commits = (counts) => ({ defaultBranchRef: { target: { history: { nodes: Object.entries(counts).flatMap(([login, n]) => Array.from({ length: n }, () => ({ author: { user: { login } } }))) } } } });
+  const authors = mainAuthorsOf(repos, { data: {
+    a0: commits({ ahmadrosid: 57, fajarhide: 8 }),
+    // The member writes most of it, but not nearly all: still somebody else's.
+    a1: commits({ rhyanz46: 60, owner: 40 }),
+    a2: commits({ Rhyanz46: 100 }),
+  } });
+  assert.deepEqual([...authors], [["ahmadrosid/nakama", "ahmadrosid"], ["go-routine-id/flowmaid", "rhyanz46"]]);
+
+  const [activity] = parseResponse([member], body, now, undefined, authors);
+  assert.deepEqual(activity.pullRequests.map((row) => [row.repo, row.own]), [
+    ["go-routine-id/flowmaid", true],
+    ["ahmadrosid/nakama", false],
+    ["busy/shared", false],
+  ]);
+  assert.deepEqual(activity.summary.repos, [{ repo: "go-routine-id/flowmaid", commits: 12 }], "its commits join their own work");
+});

@@ -5,8 +5,8 @@
  * Node test suite (tests/repo-signals.test.mjs) share exactly this code.
  *
  * One GraphQL query carries, per repository, an aliased `repository` field
- * (stars, language, last push, archived) and an aliased `search` for pull
- * requests merged since a date. Forty repositories cost one request instead
+ * (stars, language, last push, archived, who wrote the latest commits) and an
+ * aliased `search` for pull requests merged since a date. Forty repositories cost one request instead
  * of eighty REST calls.
  */
 
@@ -65,9 +65,10 @@ export function buildQuery(repos: RepoKey[], since: string): string {
     pushedAt
     isArchived
     primaryLanguage { name }
+    defaultBranchRef { target { ... on Commit { history(first: ${HISTORY_READ}) { nodes { author { user { login } } } } } } }
   }
   s${index}: search(type: ISSUE, first: 100, query: ${JSON.stringify(search)}) {
-    nodes { ... on PullRequest { authorAssociation author { __typename } } }
+    nodes { ... on PullRequest { authorAssociation author { __typename login } } }
   }`;
   });
   return `query {${fields.join("")}\n}`;
@@ -75,15 +76,37 @@ export function buildQuery(repos: RepoKey[], since: string): string {
 
 const INSIDE = new Set(["OWNER", "MEMBER", "COLLABORATOR"]);
 
+/** How many of the latest commits are read to tell who the repository's own author is. */
+const HISTORY_READ = 100;
+
+/**
+ * Whoever wrote most of the latest commits, lower-cased, or null. Their pull
+ * requests are the project's own work whatever GitHub calls them: somebody
+ * whose membership of the owning organisation is private shows as a mere
+ * CONTRIBUTOR on its repositories, and a one-person project would otherwise
+ * read as one that merges outsiders.
+ */
+function mainAuthor(node: RepositoryNode): string | null {
+  const counts = new Map<string, number>();
+  for (const commit of node?.defaultBranchRef?.target?.history?.nodes ?? []) {
+    const login = commit?.author?.user?.login;
+    if (typeof login === "string") counts.set(login.toLowerCase(), (counts.get(login.toLowerCase()) ?? 0) + 1);
+  }
+  let top: string | null = null;
+  for (const [login, count] of counts) if (top === null || count > counts.get(top)!) top = login;
+  return top;
+}
+
 type RepositoryNode = {
   stargazerCount?: unknown;
   description?: unknown;
   pushedAt?: unknown;
   isArchived?: unknown;
   primaryLanguage?: { name?: unknown } | null;
+  defaultBranchRef?: { target?: { history?: { nodes?: Array<{ author?: { user?: { login?: unknown } | null } | null } | null> } } | null } | null;
 } | null;
 
-type SearchNode = { nodes?: Array<{ authorAssociation?: unknown; author?: { __typename?: unknown } | null } | null> } | null;
+type SearchNode = { nodes?: Array<{ authorAssociation?: unknown; author?: { __typename?: unknown; login?: unknown } | null } | null> } | null;
 
 /**
  * One row per repository asked about. A repository GitHub could not find
@@ -118,13 +141,17 @@ export function parseResponse(
       };
     }
 
+    // The repository's own people: its owner when that is a person, and
+    // whoever writes most of it.
+    const own = new Set([repo.split("/")[0], mainAuthor(node)].filter((login): login is string => Boolean(login)));
     const outside = search?.nodes
       ? search.nodes.filter(
           (pr) =>
             pr &&
             typeof pr.authorAssociation === "string" &&
             !INSIDE.has(pr.authorAssociation) &&
-            pr.author?.__typename !== "Bot",
+            pr.author?.__typename !== "Bot" &&
+            !own.has(String(pr.author?.login ?? "").toLowerCase()),
         ).length
       : null;
 

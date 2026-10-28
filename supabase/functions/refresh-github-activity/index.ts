@@ -26,12 +26,15 @@
  */
 import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2.51.0";
 import {
+  authorQuestions,
   BATCH_SIZE,
+  buildAuthorQuery,
   buildQuery,
   buildSearchQuery,
   chunk,
   contributionsFrom,
   githubHandle,
+  mainAuthorsOf,
   parseResponse,
   SUGGESTION_PREFIX,
   suggestionsFrom,
@@ -104,6 +107,7 @@ async function refresh(asked: string[] | null): Promise<void> {
     }
     const body = await response.json();
     let activities = parseResponse(batch, body, now);
+    let narrowed: Parameters<typeof parseResponse>[3];
 
     // Somebody whose own repositories filled the search: ask again without
     // them. If that fails, the first answer stands.
@@ -112,8 +116,19 @@ async function refresh(asked: string[] | null): Promise<void> {
     );
     if (narrow.length > 0) {
       const again = await askGitHub(token, buildSearchQuery(narrow, now));
-      if (again.ok) activities = parseResponse(batch, body, now, await again.json());
+      if (again.ok) narrowed = await again.json();
       else console.error(`[refresh-github-activity] GitHub answered ${again.status} to the narrowed search.`);
+      activities = parseResponse(batch, body, now, narrowed);
+    }
+
+    // Who wrote the repositories they sent pull requests to: one written
+    // mostly by the member is theirs, not a contribution. If GitHub does not
+    // answer, the line drawn so far stands.
+    const repos = authorQuestions(activities);
+    if (repos.length > 0) {
+      const authors = await askGitHub(token, buildAuthorQuery(repos));
+      if (authors.ok) activities = parseResponse(batch, body, now, narrowed, mainAuthorsOf(repos, await authors.json()));
+      else console.error(`[refresh-github-activity] GitHub answered ${authors.status} to the authors question.`);
     }
 
     for (const activity of activities) {
@@ -166,6 +181,14 @@ async function store(supabase: SupabaseClient, activity: MemberActivity): Promis
  * forward to the catalogue as pending. See 20261027000100_github_contributions.sql.
  */
 async function keepContributions(supabase: SupabaseClient, activity: Extract<MemberActivity, { found: true }>): Promise<void> {
+  // A repository now known to be their own was never a contribution: what was
+  // kept for it before goes.
+  const ownRepos = [...new Set(activity.pullRequests.filter((pr) => pr.own).map((pr) => pr.repo))];
+  if (ownRepos.length > 0) {
+    const { error } = await supabase.from("github_contributions").delete().eq("user_id", activity.member.id).in("repo", ownRepos);
+    if (error) throw new Error(error.message);
+  }
+
   // Their own repositories' pull requests are their own work, not contributions.
   const merged = activity.pullRequests.filter((pr) => pr.state === "merged" && !pr.own);
   if (merged.length === 0) return;

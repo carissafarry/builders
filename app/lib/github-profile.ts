@@ -115,6 +115,61 @@ export function buildPullRequestQuery(login: string, organisations: string[]): {
   };
 }
 
+/** How many of a repository's latest commits are read to tell who writes it. */
+const HISTORY_READ = 100;
+/** The share of them somebody must have written for the repository to be theirs. */
+const SOLO_SHARE = 0.8;
+/** Repositories asked about in the third request. */
+const AUTHOR_REPOS_MAX = 40;
+
+/**
+ * The repositories in the second answer, for the third request: who wrote
+ * them. An organisation membership can be private, and then neither the
+ * organisation list nor the author association shows it — a member's
+ * one-person project under an organisation would read as somebody else's.
+ * The same rule as refresh-github-activity, so the profile and /activity
+ * agree on what is a contribution.
+ */
+export function pullRequestRepos(pullRequestBody: unknown): string[] {
+  const data = (pullRequestBody as { data?: Record<string, { nodes?: PullRequestNode[] } | null> | null } | null)?.data ?? {};
+  const repos = new Set<string>();
+  for (const search of [data.open, data.merged]) {
+    for (const node of search?.nodes ?? []) {
+      const repo = node?.repository?.nameWithOwner;
+      if (typeof repo === "string" && REPO.test(repo)) repos.add(repo.toLowerCase());
+    }
+  }
+  return [...repos].sort().slice(0, AUTHOR_REPOS_MAX);
+}
+
+export function buildAuthorQuery(repos: string[]): { query: string } | null {
+  const fields = repos.slice(0, AUTHOR_REPOS_MAX).flatMap((repo, index) => {
+    if (!REPO.test(repo)) return [];
+    const [owner, name] = repo.split("/");
+    return [`
+  a${index}: repository(owner: ${JSON.stringify(owner)}, name: ${JSON.stringify(name)}) {
+    defaultBranchRef { target { ... on Commit { history(first: ${HISTORY_READ}) { nodes { author { user { login } } } } } } }
+  }`];
+  });
+  return fields.length > 0 ? { query: `query {${fields.join("")}\n}` } : null;
+}
+
+/** Those of `repos` whose latest commits `login` wrote nearly all of. */
+export function soloReposOf(repos: string[], authorBody: unknown, login: string): Set<string> {
+  type History = { defaultBranchRef?: { target?: { history?: { nodes?: Array<{ author?: { user?: { login?: unknown } | null } | null } | null> } } | null } | null } | null;
+  const data = (authorBody as { data?: Record<string, History> | null } | null)?.data ?? {};
+  const solo = new Set<string>();
+  repos.slice(0, AUTHOR_REPOS_MAX).forEach((repo, index) => {
+    const nodes = data[`a${index}`]?.defaultBranchRef?.target?.history?.nodes ?? [];
+    const logins = nodes.flatMap((commit) => (typeof commit?.author?.user?.login === "string" ? [commit.author.user.login.toLowerCase()] : []));
+    const theirs = logins.filter((author) => author === login.toLowerCase()).length;
+    if (logins.length > 0 && theirs >= logins.length * SOLO_SHARE) solo.add(repo);
+  });
+  return solo;
+}
+
+const REPO = /^[a-z0-9](?:[a-z0-9-]{0,38})\/[a-z0-9._-]{1,100}$/i;
+
 type Repository = { nameWithOwner?: unknown; url?: unknown; stargazerCount?: unknown; isPrivate?: unknown; owner?: { login?: unknown } | null } | null;
 type PullRequestNode = {
   title?: unknown;
@@ -130,9 +185,10 @@ type PullRequestNode = {
 /**
  * What GitHub answered, shaped for the profile; null when the account is
  * missing or is not the one linked (`githubId`: a login renamed and then taken
- * by somebody else must not show their work).
+ * by somebody else must not show their work). `solo` is soloReposOf's answer:
+ * repositories that are the member's own whoever owns them.
  */
-export function parseProfile(profileBody: unknown, pullRequestBody: unknown, githubId?: number | null): GitHubProfile | null {
+export function parseProfile(profileBody: unknown, pullRequestBody: unknown, githubId?: number | null, solo: ReadonlySet<string> = new Set()): GitHubProfile | null {
   const profileData = (profileBody as { data?: { user?: Record<string, unknown> | null; readme?: { isPrivate?: unknown; object?: { text?: unknown } | null } | null } | null } | null)?.data;
   const user = profileData?.user;
   const data = (pullRequestBody as { data?: Record<string, unknown> | null } | null)?.data ?? null;
@@ -141,7 +197,11 @@ export function parseProfile(profileBody: unknown, pullRequestBody: unknown, git
   const login = user.login;
   const own = (node: PullRequestNode) => {
     const owner = String(node?.repository?.owner?.login ?? "").toLowerCase();
-    return owner === login.toLowerCase() || INSIDER.has(String(node?.authorAssociation ?? ""));
+    return (
+      owner === login.toLowerCase() ||
+      INSIDER.has(String(node?.authorAssociation ?? "")) ||
+      solo.has(String(node?.repository?.nameWithOwner ?? "").toLowerCase())
+    );
   };
   const usable = (node: PullRequestNode) =>
     Boolean(node && typeof node.url === "string" && typeof node.repository?.nameWithOwner === "string" && node.repository?.isPrivate !== true) && !own(node);

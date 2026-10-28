@@ -69,6 +69,34 @@ test("the answer becomes rows: outsiders counted, a missing repo and a failed se
   assert.equal(rows[2].last_error, "Search timed out");
 });
 
+test("the repository's own author is never an outsider, whatever GitHub calls them", () => {
+  const solo = (login) => ({ author: { user: { login } } });
+  const rows = parseResponse(
+    ["go-routine-id/flowmaid-web", "ana/tool"],
+    {
+      data: {
+        // An organisation's repository, written by one person whose membership
+        // is private: their own pull requests come back as CONTRIBUTOR.
+        r0: { stargazerCount: 0, pushedAt: "2026-10-28T00:00:00Z", isArchived: false, defaultBranchRef: { target: { history: { nodes: [solo("Rhyanz46"), solo("Rhyanz46"), { author: { user: null } }] } } } },
+        s0: { nodes: [
+          { authorAssociation: "CONTRIBUTOR", author: { __typename: "User", login: "Rhyanz46" } },
+          { authorAssociation: "CONTRIBUTOR", author: { __typename: "User", login: "rhyanz46" } },
+        ] },
+        // A person's repository: their own PRs never count, a real outsider's do.
+        r1: { stargazerCount: 3, pushedAt: "2026-10-28T00:00:00Z", isArchived: false, defaultBranchRef: { target: { history: { nodes: [solo("budi"), solo("budi"), solo("ana")] } } } },
+        s1: { nodes: [
+          { authorAssociation: "CONTRIBUTOR", author: { __typename: "User", login: "Ana" } },
+          { authorAssociation: "CONTRIBUTOR", author: { __typename: "User", login: "budi" } },
+          { authorAssociation: "FIRST_TIME_CONTRIBUTOR", author: { __typename: "User", login: "citra" } },
+        ] },
+      },
+    },
+    "2026-10-28T00:00:00.000Z",
+  );
+  assert.equal(rows[0].outside_prs, 0, "a one-person project is still looking for its first contributor");
+  assert.equal(rows[1].outside_prs, 1);
+});
+
 test("batches split evenly and the function's window matches the app's", async () => {
   assert.deepEqual(chunk([1, 2, 3, 4, 5], 2), [[1, 2], [3, 4], [5]]);
   const source = await readFile(new URL("../supabase/functions/refresh-repos/index.ts", import.meta.url), "utf8");

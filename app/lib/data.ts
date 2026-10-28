@@ -23,7 +23,16 @@ import type { RepoActivity } from "./directory";
 import { githubHandle, isOssRelation, mergeOssRows, type OssContribution, type OssMember, type OssRelation, type OssRow } from "./oss";
 import type { Lane } from "./feed";
 import { buildGitHubActivity, type ActivityPerson, type GitHubActivityEntry } from "./github-activity";
-import { buildProfileQuery, buildPullRequestQuery, organisationsOf, parseProfile, type GitHubProfile } from "./github-profile";
+import {
+  buildAuthorQuery,
+  buildProfileQuery,
+  buildPullRequestQuery,
+  organisationsOf,
+  parseProfile,
+  pullRequestRepos,
+  soloReposOf,
+  type GitHubProfile,
+} from "./github-profile";
 import type { ReactionRow } from "./reactions";
 import { FEED_KINDS } from "./product-feed";
 import { availabilityStatus, type AvailabilityStatus } from "./availability";
@@ -609,10 +618,18 @@ export async function getGitHubProfile(login: string, githubId: number | null): 
     if (!response.ok) throw new Error(`GitHub answered ${response.status} for ${login}'s profile.`);
     return response.json();
   };
-  // Two requests: the searches leave out the organisations the first names.
+  // The searches leave out the organisations the first request names; a third
+  // asks who wrote the repositories they found, since a private membership
+  // hides some of the member's own. Without its answer the line drawn so far
+  // stands.
   const profile = await ask(first);
   const second = buildPullRequestQuery(login, organisationsOf(profile));
-  return second ? parseProfile(profile, await ask(second), githubId) : null;
+  if (!second) return null;
+  const pullRequests = await ask(second);
+  const repos = pullRequestRepos(pullRequests);
+  const third = buildAuthorQuery(repos);
+  const solo = third ? await ask(third).then((body) => soloReposOf(repos, body, login), () => new Set<string>()) : new Set<string>();
+  return parseProfile(profile, pullRequests, githubId, solo);
 }
 
 /** A project somebody helps on, together with the role they hold there. */

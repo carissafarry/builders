@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { buildProfileQuery, buildPullRequestQuery, organisationsOf, parseProfile } from "../app/lib/github-profile.ts";
+import { buildAuthorQuery, buildProfileQuery, buildPullRequestQuery, organisationsOf, parseProfile, pullRequestRepos, soloReposOf } from "../app/lib/github-profile.ts";
 
 const pr = (repo, extra = {}) => ({
   title: `Fix ${repo}`,
@@ -109,4 +109,22 @@ console.log("stats")
   withReadme.data.readme = { isPrivate: false, object: { text: "Hello there" } };
   assert.deepEqual(parseProfile(withReadme, { data: {} }, 42).readme, [{ kind: "paragraph", inlines: [{ kind: "text", text: "Hello there" }] }]);
   assert.deepEqual(parseProfile(profile, { data: {} }, 42).readme, []);
+});
+
+test("a repository the member wrote nearly alone is not somebody else's, whoever owns it", () => {
+  const pulls = { data: {
+    open: { nodes: [pr("ana-co/solo", { number: 1 })] },
+    merged: { issueCount: 2, nodes: [pr("ana-co/solo", { number: 2, mergedAt: "2026-10-21T00:00:00Z" }), pr("big/project", { number: 3, mergedAt: "2026-10-22T00:00:00Z" })] },
+  } };
+  const repos = pullRequestRepos(pulls);
+  assert.deepEqual(repos, ["ana-co/solo", "big/project"]);
+  assert.match(buildAuthorQuery(repos).query, /a1: repository\(owner: "big", name: "project"\)/);
+  const commits = (counts) => ({ defaultBranchRef: { target: { history: { nodes: Object.entries(counts).flatMap(([login, n]) => Array.from({ length: n }, () => ({ author: { user: { login } } }))) } } } });
+  const solo = soloReposOf(repos, { data: { a0: commits({ Ana: 9, bot: 1 }), a1: commits({ ana: 70, maintainer: 30 }) } }, "ana");
+  assert.deepEqual([...solo], ["ana-co/solo"]);
+
+  const result = parseProfile(profile, pulls, 42, solo);
+  assert.deepEqual(result.open, []);
+  assert.deepEqual(result.merged.repos.map((repo) => repo.repo), ["big/project"]);
+  assert.equal(result.merged.count, 1);
 });
