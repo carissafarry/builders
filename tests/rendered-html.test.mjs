@@ -60,6 +60,13 @@ const guestOnly = [
       ]),
 ];
 
+// Addresses nothing lives at: still a 200 (the status is sent before the page
+// knows), so the page's title is what says it was not found. [path, title].
+const missing = [
+  ["/u/no-such-member", /person not found/i],
+  ...(oss ? [] : [["/projects/no-such-project", /project not found/i]]),
+];
+
 // [from, where it should land]. A path stays on the site; a full URL leaves it.
 // /activity is the home page now, so it redirects rather than rendering.
 const redirects = [
@@ -130,6 +137,14 @@ for (const [path, to] of guestOnly) {
     const response = await fetch(base + path, { redirect: "manual" });
     assert.equal(response.status, 200);
     assert.ok((await response.text()).includes(`NEXT_REDIRECT;replace;${to};307;`));
+  });
+}
+
+for (const [path, title] of missing) {
+  test(`${label}: ${path} says it was not found`, async () => {
+    const response = await fetch(base + path, { redirect: "manual" });
+    assert.equal(response.status, 200);
+    assert.match((await response.text()).match(/<title[^>]*>([^<]*)<\/title>/)?.[1] ?? "", title);
   });
 }
 
