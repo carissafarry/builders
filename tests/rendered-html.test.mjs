@@ -30,12 +30,18 @@ const SEED_PROJECT = "warung-antre";
 // Public pages: 200 and a heading.
 const pages = [
   "/",
+  "/directory",
   "/how-it-works",
   "/about",
   "/privacy",
   "/feedback",
+  "/community",
+  "/signin",
+  "/forgot-password",
+  "/account/password",
+  "/account/language",
   `/u/${SEED_USER}`,
-  ...(oss ? [] : [`/projects/${SEED_PROJECT}`]),
+  ...(oss ? ["/recommend", "/leaderboard"] : ["/new", `/projects/${SEED_PROJECT}`]),
 ];
 
 // [from, where it should land]. A path stays on the site; a full URL leaves it.
