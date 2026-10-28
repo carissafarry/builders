@@ -1664,7 +1664,13 @@ form button[aria-busy="true"]::after,
 .ax-board-rank { color: var(--dx-muted); font-size: 13px; font-variant-numeric: tabular-nums; font-weight: 650; text-align: center; }
 .ax-board-list li:nth-child(-n + 3) .ax-board-rank { font-size: 17px; line-height: 1; }
 .ax-board-list img { border-radius: 50%; height: 24px; width: 24px; }
+.ax-board-who { display: grid; gap: 4px; min-width: 0; }
 .ax-board-name { font-size: 13.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The last twelve weeks under the name, oldest first: a filled dot for a week
+   with a merged PR. */
+.ax-weeks { display: flex; gap: 3px; }
+.ax-weeks i { background: var(--dx-line); border-radius: 50%; height: 6px; width: 6px; }
+.ax-weeks i.is-on { background: var(--tone); }
 .ax-board-score { color: var(--dx-muted); display: grid; font-size: 12px; justify-items: end; line-height: 1.2; }
 .ax-board-score strong { color: var(--tone); font-size: 14px; font-variant-numeric: tabular-nums; font-weight: 700; }
 .ax-board-score small { font-size: 11px; }

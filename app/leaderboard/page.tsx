@@ -9,7 +9,7 @@ import { tx, type Locale } from "../lib/locale";
 import { site } from "../lib/site";
 import { listGitHubActivity } from "../lib/data";
 import { readPublicly } from "../lib/public-read";
-import { dayKey, leaderboard, type GitHubActivityEntry, type LeaderboardRow } from "../lib/github-activity";
+import { CONSISTENCY_WEEKS, consistencyBoard, dayKey, type ConsistencyRow, type GitHubActivityEntry } from "../lib/github-activity";
 
 export async function generateMetadata(): Promise<Metadata> {
   const locale = await currentLocale();
@@ -30,16 +30,16 @@ export async function generateMetadata(): Promise<Metadata> {
 /** What is being worked out on #186: [title id, title en, body id, body en]. */
 const PLANNED: [string, string, string, string][] = [
   [
-    "Poin dari PR merged",
-    "Points for merged PRs",
-    "PR yang di-merge ke repo orang lain jadi dasar skornya, jadi PR spam nggak dapat apa-apa.",
-    "Pull requests merged into other people's repos are the base of the score, so spam PRs earn nothing.",
+    "Konsistensi, bukan volume",
+    "Consistency, not volume",
+    "1 minggu 1 PR: yang dihitung berapa minggu kamu punya PR merged ke repo orang lain, bukan berapa banyak PR-nya. Memecah satu perubahan jadi lima PR nggak dapat apa-apa.",
+    "One PR a week: what counts is how many weeks you had a PR merged into somebody else's repo, not how many PRs. Splitting one change into five earns nothing.",
   ],
   [
     "Streak",
     "Streaks",
-    "Kontribusi beberapa minggu berturut-turut dihargai, bukan cuma satu ledakan sekali.",
-    "Contributing several weeks in a row counts for more than one burst.",
+    "Minggu berturut-turut yang terisi. Sudah jalan di papan sekarang—12 minggu ke belakang, dan nanti sepanjang masa.",
+    "Weeks in a row. Already on the board—12 weeks back for now, all-time later.",
   ],
   [
     "Badge & milestone",
@@ -48,48 +48,47 @@ const PLANNED: [string, string, string, string][] = [
     "First merged PR, first PR to a global repo, five repos contributed to, and so on.",
   ],
   [
-    "Lokal & global, mingguan & sepanjang masa",
-    "Local & global, weekly & all-time",
-    "Peringkat bisa dilihat per repo lokal atau global, per minggu, per bulan, atau sepanjang masa.",
-    "Rankings by local or global repos, by week, by month, or all-time.",
+    "Lokal & global, sepanjang masa",
+    "Local & global, all-time",
+    "Peringkat bisa dilihat per repo lokal atau global, untuk 12 minggu terakhir atau sepanjang masa.",
+    "Rankings by local or global repos, over the last 12 weeks or all-time.",
   ],
 ];
 
 /**
  * A made-up board for the preview: invented names, not members, and numbers
- * of no meaning. It only shows the shape the real one will take — points,
- * merged PRs, streaks, badges, repos — and sits blurred behind the lock.
+ * of no meaning. It only shows the shape the real one will take — weeks,
+ * streaks, merged PRs, badges, repos — and sits blurred behind the lock.
  */
-const PREVIEW_ROWS: { name: string; points: number; merged: number; streak: number; badges: string; repos: number; hue: number }[] = [
-  { name: "Raka Pratama", points: 1240, merged: 18, streak: 6, badges: "🥇🌍🚀", repos: 7, hue: 262 },
-  { name: "Dewi Anggraini", points: 1105, merged: 15, streak: 5, badges: "🌍🚀", repos: 6, hue: 200 },
-  { name: "Bima Saputra", points: 980, merged: 13, streak: 4, badges: "🚀⭐", repos: 5, hue: 24 },
-  { name: "Sinta Maharani", points: 760, merged: 10, streak: 3, badges: "⭐", repos: 4, hue: 330 },
-  { name: "Fajar Nugroho", points: 690, merged: 9, streak: 3, badges: "🌍", repos: 4, hue: 150 },
-  { name: "Ayu Lestari", points: 540, merged: 7, streak: 2, badges: "⭐", repos: 3, hue: 45 },
-  { name: "Galih Wicaksono", points: 420, merged: 6, streak: 2, badges: "🌱", repos: 3, hue: 280 },
-  { name: "Nadia Putri", points: 310, merged: 4, streak: 1, badges: "🌱", repos: 2, hue: 180 },
+const PREVIEW_ROWS: { name: string; weeks: number; merged: number; streak: number; badges: string; repos: number; hue: number }[] = [
+  { name: "Raka Pratama", weeks: 11, merged: 18, streak: 6, badges: "🥇🌍🚀", repos: 7, hue: 262 },
+  { name: "Dewi Anggraini", weeks: 10, merged: 15, streak: 5, badges: "🌍🚀", repos: 6, hue: 200 },
+  { name: "Bima Saputra", weeks: 9, merged: 13, streak: 4, badges: "🚀⭐", repos: 5, hue: 24 },
+  { name: "Sinta Maharani", weeks: 8, merged: 10, streak: 3, badges: "⭐", repos: 4, hue: 330 },
+  { name: "Fajar Nugroho", weeks: 7, merged: 9, streak: 3, badges: "🌍", repos: 4, hue: 150 },
+  { name: "Ayu Lestari", weeks: 6, merged: 7, streak: 2, badges: "⭐", repos: 3, hue: 45 },
+  { name: "Galih Wicaksono", weeks: 5, merged: 6, streak: 2, badges: "🌱", repos: 3, hue: 280 },
+  { name: "Nadia Putri", weeks: 4, merged: 4, streak: 1, badges: "🌱", repos: 2, hue: 180 },
 ];
 
-/** How many of this month's real leaders lead the preview, in the clear. */
+/** How many of the real leaders lead the preview, in the clear. */
 const REAL_SHOWN = 3;
 
 /**
- * The board as it will look. The first rows are real — this month's leaders
- * by merged PRs, the ranking the activity page already shows — and clear;
+ * The board as it will look. The first rows are real — the leaders by weeks
+ * with a merged PR, the ranking the activity page already shows — and clear;
  * below them made-up rows fade into a blur, under a "coming soon" lock that
- * points to #186. Points, streaks and badges do not exist yet, so the real
- * rows show a dash there.
+ * points to #186. Badges do not exist yet, so the real rows show a dash there.
  */
 async function LivePreview({ locale }: { locale: Locale }) {
   // Today in WIB is read per request, not frozen into the prerendered shell.
   await connection();
   const result = await readPublicly<GitHubActivityEntry[]>("github activity for the leaderboard preview", listGitHubActivity, []);
-  const real = leaderboard(result.value, "month", dayKey(new Date(), "Asia/Jakarta")).slice(0, REAL_SHOWN);
+  const real = consistencyBoard(result.value, dayKey(new Date(), "Asia/Jakarta")).slice(0, REAL_SHOWN);
   return <LockedPreview locale={locale} real={real} />;
 }
 
-function LockedPreview({ locale, real }: { locale: Locale; real: LeaderboardRow[] }) {
+function LockedPreview({ locale, real }: { locale: Locale; real: ConsistencyRow[] }) {
   const made = PREVIEW_ROWS.slice(0, PREVIEW_ROWS.length - real.length);
   return (
     // The fog starts right under the last real row, so no made-up name is
@@ -97,7 +96,7 @@ function LockedPreview({ locale, real }: { locale: Locale; real: LeaderboardRow[
     <section className="lb-preview" aria-labelledby="lb-lock-title" style={{ "--lb-clear": `${66 + real.length * 49}px` } as React.CSSProperties}>
       <p className="lb-preview-note">
         {real.length > 0
-          ? tx(locale, "Peringkat bulan ini, sejauh ini", "This month's ranking, so far")
+          ? tx(locale, `Konsistensi ${CONSISTENCY_WEEKS} minggu terakhir`, `Consistency over the last ${CONSISTENCY_WEEKS} weeks`)
           : tx(locale, "Contoh tampilan", "What it will look like")}
       </p>
       <table className="lb-board">
@@ -105,15 +104,15 @@ function LockedPreview({ locale, real }: { locale: Locale; real: LeaderboardRow[
           <tr>
             <th>#</th>
             <th>{tx(locale, "Member", "Member")}</th>
-            <th>{tx(locale, "PR merged", "Merged PRs")}</th>
+            <th>{tx(locale, "Minggu", "Weeks")}</th>
+            <th>Streak</th>
+            <th className="lb-wide">{tx(locale, "PR merged", "Merged PRs")}</th>
             <th className="lb-wide">Repo</th>
-            <th>{tx(locale, "Poin", "Points")}</th>
-            <th className="lb-wide">Streak</th>
             <th className="lb-wide">Badge</th>
           </tr>
         </thead>
         <tbody>
-          {real.map(({ person, prs, repos }, index) => (
+          {real.map(({ person, filled, streak, prs, repos }, index) => (
             <tr key={person.id}>
               <td>{["🥇", "🥈", "🥉"][index] ?? index + 1}</td>
               <td>
@@ -121,10 +120,12 @@ function LockedPreview({ locale, real }: { locale: Locale; real: LeaderboardRow[
                 <img className="lb-avatar" src={`https://github.com/${encodeURIComponent(person.handle)}.png?size=56`} alt="" width={28} height={28} />
                 {person.name || `@${person.handle}`}
               </td>
-              <td>{prs}</td>
+              <td className="lb-points">
+                {filled}/{CONSISTENCY_WEEKS}
+              </td>
+              <td>{streak > 0 ? `🔥 ${streak}` : "—"}</td>
+              <td className="lb-wide">{prs}</td>
               <td className="lb-wide">{repos}</td>
-              <td className="lb-soon-cell">—</td>
-              <td className="lb-wide lb-soon-cell">—</td>
               <td className="lb-wide lb-soon-cell">—</td>
             </tr>
           ))}
@@ -139,10 +140,12 @@ function LockedPreview({ locale, real }: { locale: Locale; real: LeaderboardRow[
                 </span>
                 {row.name}
               </td>
-              <td>{row.merged}</td>
+              <td className="lb-points">
+                {row.weeks}/{CONSISTENCY_WEEKS}
+              </td>
+              <td>🔥 {row.streak}</td>
+              <td className="lb-wide">{row.merged}</td>
               <td className="lb-wide">{row.repos}</td>
-              <td className="lb-points">{row.points.toLocaleString("id-ID")}</td>
-              <td className="lb-wide">🔥 {row.streak}</td>
               <td className="lb-wide">{row.badges}</td>
             </tr>
           ))}
@@ -158,8 +161,8 @@ function LockedPreview({ locale, real }: { locale: Locale; real: LeaderboardRow[
         <p>
           {tx(
             locale,
-            "Poin, streak, dan badge lagi kami siapkan. Bantu tentukan aturannya.",
-            "Points, streaks and badges are on their way. Help decide the rules.",
+            "Badge, milestone, dan papan sepanjang masa lagi kami siapkan. Bantu tentukan aturannya.",
+            "Badges, milestones and an all-time board are on their way. Help decide the rules.",
           )}
         </p>
         <a className="ab-button ab-button-primary" href={leaderboardIssueUrl} target="_blank" rel="noopener noreferrer">
@@ -173,10 +176,10 @@ function LockedPreview({ locale, real }: { locale: Locale; real: LeaderboardRow[
 /**
  * The leaderboard, before it exists.
  *
- * Points, streaks and badges are still being worked out on #186, so this page
- * says what is planned and asks for ideas there. Until then the activity page
- * (`/`) keeps a simple ranking — merged PRs this month or this week — beside
- * its feed; this page points to it.
+ * Badges and an all-time board are still being worked out on #186, so this
+ * page says what is planned and asks for ideas there. The ranking itself —
+ * weeks with a merged PR out of the last twelve — already sits beside the
+ * activity page's feed (`/`); this page points to it.
  */
 export default async function LeaderboardPage() {
   const locale = await currentLocale();
@@ -195,14 +198,14 @@ export default async function LeaderboardPage() {
             <p>
               {tx(
                 locale,
-                "Papan peringkat kontributor open source komunitas swegrowth—dengan poin, streak, dan badge—lagi kami siapkan. Aturan mainnya dibahas terbuka, dan kamu bisa ikut menentukan.",
-                "A leaderboard of the swegrowth community's open source contributors—with points, streaks and badges—is on its way. The rules are being worked out in the open, and you can help shape them.",
+                "Papan peringkat kontributor open source komunitas swegrowth. Yang dihargai rutinnya, bukan banyaknya: 1 minggu 1 PR. Badge dan papan sepanjang masa lagi kami siapkan, dan aturannya dibahas terbuka—kamu bisa ikut menentukan.",
+                "A leaderboard of the swegrowth community's open source contributors. It rewards keeping at it, not volume: one PR a week. Badges and an all-time board are on their way, and the rules are worked out in the open—you can help shape them.",
               )}
             </p>
           </div>
         </header>
 
-        {/* Made-up rows only, until this month's real ones have been read. */}
+        {/* Made-up rows only, until the real ones have been read. */}
         <Suspense fallback={<LockedPreview locale={locale} real={[]} />}>
           <LivePreview locale={locale} />
         </Suspense>
@@ -218,7 +221,7 @@ export default async function LeaderboardPage() {
             ))}
           </ul>
           <Link className="ab-more" href="/">
-            {tx(locale, "Sementara itu, lihat peringkat bulan ini di Aktivitas", "Meanwhile, see this month's ranking on Activity")} <Arrow />
+            {tx(locale, "Lihat peringkat lengkapnya di Aktivitas", "See the full ranking on Activity")} <Arrow />
           </Link>
         </section>
 

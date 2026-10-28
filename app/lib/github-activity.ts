@@ -24,6 +24,8 @@ export type PullRequestItem = {
   title: string;
   /** When it was merged, or opened while it is still open. */
   at: string;
+  /** When it was opened: the week it counts for on the board. */
+  openedAt: string;
 };
 
 export type PullRequestEntry = {
@@ -173,7 +175,7 @@ export function buildGitHubActivity(
     }
     const group = `${row.person.id} ${row.repo} ${row.state} ${dayKey(at, timeZone)}`;
     const found = groups.get(group) ?? { person: row.person, repo: row.repo, state: row.state, items: [] };
-    found.items.push({ url: row.url, number: row.number, title: row.title, at });
+    found.items.push({ url: row.url, number: row.number, title: row.title, at, openedAt: row.opened_at });
     groups.set(group, found);
   }
   for (const { person, repo, state, items } of groups.values()) {
@@ -304,35 +306,94 @@ export function activityPeople(entries: GitHubActivityEntry[]): { person: Activi
 }
 
 /**
- * The leaderboard's periods: this calendar month and this calendar week, in
- * WIB, so the board resets where the members live. The month is the default.
+ * The Monday that starts the week `day` is in, as `YYYY-MM-DD`. Calendar
+ * arithmetic on the date alone, so it is the same on the server and in the
+ * browser.
  */
-export const LEADERBOARD_PERIODS = ["month", "week"] as const;
-export type LeaderboardPeriod = (typeof LEADERBOARD_PERIODS)[number];
-
-export function isLeaderboardPeriod(value: string): value is LeaderboardPeriod {
-  return (LEADERBOARD_PERIODS as readonly string[]).includes(value);
-}
-
-/**
- * The first day of the period `today` is in, as `YYYY-MM-DD`: the 1st of the
- * month, or the Monday of the week. Calendar arithmetic on the date alone, so
- * it is the same on the server and in the browser.
- */
-export function periodStart(today: string, period: LeaderboardPeriod): string {
-  if (period === "month") return `${today.slice(0, 7)}-01`;
-  const date = new Date(`${today}T00:00:00Z`);
-  const sinceMonday = (date.getUTCDay() + 6) % 7;
-  date.setUTCDate(date.getUTCDate() - sinceMonday);
+export function weekStart(day: string): string {
+  const date = new Date(`${day}T00:00:00Z`);
+  date.setUTCDate(date.getUTCDate() - ((date.getUTCDay() + 6) % 7));
   return date.toISOString().slice(0, 10);
 }
 
+/** How many weeks the board looks back over, this one included. */
+export const CONSISTENCY_WEEKS = 12;
+
+export type ConsistencyRow = {
+  person: ActivityPerson;
+  /** Each of the last CONSISTENCY_WEEKS weeks, oldest first: whether it had a pull request. */
+  weeks: boolean[];
+  /** How many of them did. */
+  filled: number;
+  /** Weeks in a row up to this one — or up to last week, while this one is still empty. */
+  streak: number;
+  repos: number;
+  prs: number;
+};
+
+/**
+ * The leaderboard: who keeps contributing, not who sent the most. A week
+ * counts when a pull request to somebody else's repository that was opened in
+ * it has been merged — the week it was opened, so a slow maintainer costs
+ * nobody their week; one still in review counts once it lands. Weeks run
+ * Monday to Sunday in WIB, where the members live.
+ *
+ * Ranked by weeks filled, then the streak, then repos reached, then pull
+ * requests. Volume only breaks ties: splitting one change into five pull
+ * requests earns nothing (#186).
+ */
+export function consistencyBoard(entries: GitHubActivityEntry[], today: string, timeZone = "Asia/Jakarta"): ConsistencyRow[] {
+  const thisWeek = weekStart(today);
+  const weekStarts = Array.from({ length: CONSISTENCY_WEEKS }, (_, index) => {
+    const date = new Date(`${thisWeek}T00:00:00Z`);
+    date.setUTCDate(date.getUTCDate() - 7 * (CONSISTENCY_WEEKS - 1 - index));
+    return date.toISOString().slice(0, 10);
+  });
+  const slot = new Map(weekStarts.map((week, index) => [week, index]));
+
+  const byHandle = new Map<string, { person: ActivityPerson; weeks: boolean[]; repos: Set<string>; prs: number }>();
+  for (const entry of entries) {
+    if (entry.kind !== "pull_request" || entry.state !== "merged") continue;
+    for (const pullRequest of entry.pullRequests) {
+      const opened = dayKey(pullRequest.openedAt, timeZone);
+      const index = opened > today ? undefined : slot.get(weekStart(opened));
+      if (index === undefined) continue;
+      const key = entry.person.handle.toLowerCase();
+      const row = byHandle.get(key) ?? { person: entry.person, weeks: Array<boolean>(CONSISTENCY_WEEKS).fill(false), repos: new Set<string>(), prs: 0 };
+      row.weeks[index] = true;
+      row.repos.add(entry.repo);
+      row.prs += 1;
+      byHandle.set(key, row);
+    }
+  }
+
+  return [...byHandle.values()]
+    .map(({ person, weeks, repos, prs }) => {
+      let at = weeks[CONSISTENCY_WEEKS - 1] ? CONSISTENCY_WEEKS - 1 : CONSISTENCY_WEEKS - 2;
+      let streak = 0;
+      while (at >= 0 && weeks[at]) {
+        streak += 1;
+        at -= 1;
+      }
+      return { person, weeks, filled: weeks.filter(Boolean).length, streak, repos: repos.size, prs };
+    })
+    .sort(
+      (a, b) =>
+        b.filled - a.filled ||
+        b.streak - a.streak ||
+        b.repos - a.repos ||
+        b.prs - a.prs ||
+        (a.person.name || a.person.handle).localeCompare(b.person.name || b.person.handle),
+    );
+}
+
+/** A row of the own-work board. */
 export type LeaderboardRow = {
   person: ActivityPerson;
-  /** The pull requests that count: merged, in review, or both, as the feed's kind filter asks. */
+  /** Pull requests merged into their own repositories. */
   prs: number;
   repos: number;
-  /** Commits to their own repositories, on the own-work board only: the tie-break there. */
+  /** Commits to their own repositories: the tie-break. */
   commits?: number;
 };
 
@@ -353,41 +414,6 @@ export function ownLeaderboard(entries: GitHubActivityEntry[]): LeaderboardRow[]
         (b.commits ?? 0) - (a.commits ?? 0) ||
         (a.person.name || a.person.handle).localeCompare(b.person.name || b.person.handle),
     );
-}
-
-/**
- * Who has sent the most pull requests to other people's repositories this
- * period — merged by default; in review, or both, when the feed's kind
- * filter asks for them. A merged PR counts on the day it was merged, one in
- * review on the day it was opened. Other people's repositories only, so a
- * member's own do not count. Ties go to whoever reached more repos, then by
- * name. Points, streaks and the rest are being worked out on #186.
- */
-export function leaderboard(
-  entries: GitHubActivityEntry[],
-  period: LeaderboardPeriod,
-  today: string,
-  states: readonly PullRequestEntry["state"][] = ["merged"],
-  timeZone = "Asia/Jakarta",
-): LeaderboardRow[] {
-  const from = periodStart(today, period);
-  const byHandle = new Map<string, { person: ActivityPerson; prs: number; repos: Set<string> }>();
-  for (const entry of entries) {
-    if (entry.kind !== "pull_request" || !states.includes(entry.state)) continue;
-    const counted = entry.pullRequests.filter((pullRequest) => {
-      const day = dayKey(pullRequest.at, timeZone);
-      return day >= from && day <= today;
-    }).length;
-    if (counted === 0) continue;
-    const key = entry.person.handle.toLowerCase();
-    const row = byHandle.get(key) ?? { person: entry.person, prs: 0, repos: new Set<string>() };
-    row.prs += counted;
-    row.repos.add(entry.repo);
-    byHandle.set(key, row);
-  }
-  return [...byHandle.values()]
-    .map(({ person, prs, repos }) => ({ person, prs, repos: repos.size }))
-    .sort((a, b) => b.prs - a.prs || b.repos - a.repos || (a.person.name || a.person.handle).localeCompare(b.person.name || b.person.handle));
 }
 
 export type ActivityStats = { people: number; merged: number; open: number; repos: number };

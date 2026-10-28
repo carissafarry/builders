@@ -22,7 +22,7 @@ import type { GitHubRepositoryStats } from "./github";
 import type { RepoActivity } from "./directory";
 import { githubHandle, isOssRelation, mergeOssRows, type OssContribution, type OssMember, type OssRelation, type OssRow } from "./oss";
 import type { Lane } from "./feed";
-import { buildGitHubActivity, type ActivityPerson, type GitHubActivityEntry } from "./github-activity";
+import { buildGitHubActivity, SUMMARY_DAYS, type ActivityPerson, type GitHubActivityEntry } from "./github-activity";
 import {
   buildAuthorQuery,
   buildProfileQuery,
@@ -1793,8 +1793,17 @@ export async function isSiteAdmin(): Promise<boolean> {
   return data === true;
 }
 
-/** How many pull requests the /activity page reads; the newest, merged or opened. */
-const GITHUB_ACTIVITY_LIMIT = 300;
+/**
+ * How many pull requests the /activity page reads of each kind, newest first.
+ * Read apart: members' own pull requests come by the hundred — a busy week on
+ * one's own project is dozens — and read together they crowded out the
+ * contributions the page and its board are for, down to the last few days.
+ * Contributions are read back as far as the board looks (CONSISTENCY_WEEKS,
+ * inside the Edge Function's 90 days); own work only for its summary's
+ * SUMMARY_DAYS. 1,000 is also PostgREST's cap on one read.
+ */
+const GITHUB_CONTRIBUTIONS_LIMIT = 1000;
+const GITHUB_OWN_LIMIT = 1000;
 
 type PersonColumns = { id: string; username: string; name: string; github: string } | null;
 
@@ -1822,15 +1831,26 @@ export async function listGitHubActivity(): Promise<GitHubActivityEntry[]> {
   if (!supabase) return [];
 
   const person = "person:profiles(id, username, name, github)";
-  const [pullRequests, summaries] = await Promise.all([
+  const ownSince = new Date(Date.now() - SUMMARY_DAYS * 86_400_000).toISOString();
+  const [contributions, own, summaries] = await Promise.all([
     supabase
       .from("github_pull_requests")
       .select(`*, ${person}`)
+      .eq("own", false)
       .order("opened_at", { ascending: false })
-      .limit(GITHUB_ACTIVITY_LIMIT),
+      .limit(GITHUB_CONTRIBUTIONS_LIMIT),
+    // Only what the summary counts: merged in its window.
+    supabase
+      .from("github_pull_requests")
+      .select(`*, ${person}`)
+      .eq("own", true)
+      .eq("state", "merged")
+      .gte("merged_at", ownSince)
+      .order("merged_at", { ascending: false })
+      .limit(GITHUB_OWN_LIMIT),
     supabase.from("github_commit_summaries").select(`*, ${person}`),
   ]);
-  const error = pullRequests.error ?? summaries.error;
+  const error = contributions.error ?? own.error ?? summaries.error;
   if (error) {
     // A deploy ahead of 20261024000000_github_activity.sql shows an empty
     // page, not an error.
@@ -1840,7 +1860,7 @@ export async function listGitHubActivity(): Promise<GitHubActivityEntry[]> {
 
   type WithPerson<T> = T & { person: PersonColumns };
   return buildGitHubActivity(
-    ((pullRequests.data ?? []) as WithPerson<GitHubPullRequestRow>[]).map((row) => ({ ...row, person: activityPerson(row.person) })),
+    ([...(contributions.data ?? []), ...(own.data ?? [])] as WithPerson<GitHubPullRequestRow>[]).map((row) => ({ ...row, person: activityPerson(row.person) })),
     ((summaries.data ?? []) as WithPerson<GitHubCommitSummaryRow>[]).map((row) => ({ ...row, person: activityPerson(row.person) })),
   );
 }

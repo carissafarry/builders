@@ -2,11 +2,9 @@ import {
   isActivityPlace,
   isActivityScope,
   isGitHubActivityFilter,
-  isLeaderboardPeriod,
   type ActivityPlace,
   type ActivityQuery,
   type ActivityScope,
-  type LeaderboardPeriod,
 } from "./github-activity";
 
 /**
@@ -16,7 +14,7 @@ import {
  * the same arrangement as directory-url.ts.
  */
 
-export type ActivityFilters = ActivityQuery & { scope: ActivityScope; place: ActivityPlace; board: LeaderboardPeriod };
+export type ActivityFilters = ActivityQuery & { scope: ActivityScope; place: ActivityPlace };
 
 type Query = Record<string, string | string[] | undefined> | URLSearchParams;
 
@@ -44,7 +42,6 @@ export function readActivityFilters(query: Query): ActivityFilters {
   if (scope === "own") kind = "all";
   const member = read(query, "member").trim();
   const repo = read(query, "repo").trim().toLowerCase();
-  const board = read(query, "board");
   const place = read(query, "place");
   return {
     // Contributions unless asked otherwise: what the page is for.
@@ -55,8 +52,6 @@ export function readActivityFilters(query: Query): ActivityFilters {
     member: HANDLE.test(member) ? member : "",
     repo: REPO_KEY.test(repo) ? repo : "",
     q: read(query, "q").slice(0, 100),
-    // The leaderboard's period: this month unless the week is asked for.
-    board: isLeaderboardPeriod(board) ? board : "month",
   };
 }
 
@@ -75,7 +70,6 @@ export function activityPath(filters: Partial<ActivityFilters>, page = 1): strin
   if (filters.member) params.set("member", filters.member);
   if (filters.repo) params.set("repo", filters.repo);
   if (filters.q?.trim()) params.set("q", filters.q.trim());
-  if (filters.board && filters.board !== "month") params.set("board", filters.board);
   if (page > 1) params.set("page", String(page));
   const search = params.toString();
   return `/${search ? `?${search}` : ""}`;
