@@ -71,7 +71,35 @@ const missing = [
 // /activity is the home page now, so it redirects rather than rendering.
 const redirects = [
   ["/activity", "/"],
-  ...(oss ? [["/new", `${BUILDERS_ORIGIN}/new`]] : [["/recommend", `${OSS_ORIGIN}/recommend`]]),
+  ["/?sort=new", "/directory?sort=new"],
+  ["/people", "/directory"],
+  ["/orang", "/directory"],
+  ["/mulai", "/get-started"],
+  ["/lupa-password", "/forgot-password"],
+  ["/akun/profil", "/account/profile"],
+  ["/akun/password", "/account/password"],
+  ...(oss
+    ? [
+        ["/new", `${BUILDERS_ORIGIN}/new`],
+        ["/inbox", `${BUILDERS_ORIGIN}/inbox`],
+        [`/projects/${SEED_PROJECT}`, `${BUILDERS_ORIGIN}/projects/${SEED_PROJECT}`],
+        [`/projects/${SEED_PROJECT}/edit`, `${BUILDERS_ORIGIN}/projects/${SEED_PROJECT}/edit`],
+        ["/how-it-works/roles", `${BUILDERS_ORIGIN}/how-it-works`],
+        ["/explore", `${BUILDERS_ORIGIN}/directory?track=role`],
+        ["/kolaborasi", `${BUILDERS_ORIGIN}/directory?track=role`],
+        ["/?track=role", `${BUILDERS_ORIGIN}/directory?track=role`],
+        ["/directory?track=role", `${BUILDERS_ORIGIN}/directory?track=role`],
+        ["/submit", "/recommend"],
+      ]
+    : [
+        ["/recommend", `${OSS_ORIGIN}/recommend`],
+        ["/leaderboard", `${OSS_ORIGIN}/leaderboard`],
+        ["/how-it-works/roles", "/how-it-works"],
+        ["/explore", "/directory?track=role"],
+        ["/kolaborasi", "/directory?track=role"],
+        ["/?track=role", "/directory?track=role"],
+        ["/submit", "/new"],
+      ]),
 ];
 
 let server;
