@@ -3,6 +3,8 @@ import { spawn } from "node:child_process";
 import { createServer } from "node:net";
 import test, { after, before } from "node:test";
 
+import nextEnv from "@next/env";
+
 /**
  * Opens the built site the way a visitor does: `next start` on the output of
  * the last `next build`, with no Supabase, so the pages read the seed data.
@@ -16,6 +18,10 @@ import test, { after, before } from "node:test";
  * Pure-logic tests cannot see a page that throws for a guest or a redirect
  * between the two sites that points the wrong way; this can.
  */
+
+// Read the environment the way `next build` does, so a NEXT_PUBLIC_SITE set in
+// .env.local picks the same site here as it did for the build.
+nextEnv.loadEnvConfig(process.cwd(), false, { info() {}, error() {} });
 
 const oss = process.env.NEXT_PUBLIC_SITE === "oss";
 const label = oss ? "oss" : "builders";
