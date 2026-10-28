@@ -321,7 +321,7 @@ export const CONSISTENCY_WEEKS = 12;
 
 export type ConsistencyRow = {
   person: ActivityPerson;
-  /** Each of the last CONSISTENCY_WEEKS weeks, oldest first: whether it had a pull request. */
+  /** Each of the last CONSISTENCY_WEEKS weeks, oldest first: whether a pull request was opened in it. */
   weeks: boolean[];
   /** How many of them did. */
   filled: number;
@@ -333,16 +333,21 @@ export type ConsistencyRow = {
 
 /**
  * The leaderboard: who keeps contributing, not who sent the most. A week
- * counts when a pull request to somebody else's repository that was opened in
- * it has been merged — the week it was opened, so a slow maintainer costs
- * nobody their week; one still in review counts once it lands. Weeks run
- * Monday to Sunday in WIB, where the members live.
+ * counts when a pull request to somebody else's repository was opened in it —
+ * in review or merged by default, or only one of the two when the feed's kind
+ * filter asks. One closed without merging never counts: the Edge Function
+ * drops it. Weeks run Monday to Sunday in WIB, where the members live.
  *
  * Ranked by weeks filled, then the streak, then repos reached, then pull
  * requests. Volume only breaks ties: splitting one change into five pull
  * requests earns nothing (#186).
  */
-export function consistencyBoard(entries: GitHubActivityEntry[], today: string, timeZone = "Asia/Jakarta"): ConsistencyRow[] {
+export function consistencyBoard(
+  entries: GitHubActivityEntry[],
+  today: string,
+  states: readonly PullRequestEntry["state"][] = ["merged", "open"],
+  timeZone = "Asia/Jakarta",
+): ConsistencyRow[] {
   const thisWeek = weekStart(today);
   const weekStarts = Array.from({ length: CONSISTENCY_WEEKS }, (_, index) => {
     const date = new Date(`${thisWeek}T00:00:00Z`);
@@ -353,7 +358,7 @@ export function consistencyBoard(entries: GitHubActivityEntry[], today: string, 
 
   const byHandle = new Map<string, { person: ActivityPerson; weeks: boolean[]; repos: Set<string>; prs: number }>();
   for (const entry of entries) {
-    if (entry.kind !== "pull_request" || entry.state !== "merged") continue;
+    if (entry.kind !== "pull_request" || !states.includes(entry.state)) continue;
     for (const pullRequest of entry.pullRequests) {
       const opened = dayKey(pullRequest.openedAt, timeZone);
       const index = opened > today ? undefined : slot.get(weekStart(opened));

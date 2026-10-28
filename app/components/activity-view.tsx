@@ -141,11 +141,13 @@ export function ActivityView({
   const people = useMemo(() => activityPeople(entries), [entries]);
   // Members' own work — the Own scope, or summaries — has its own board;
   // otherwise the board is who keeps contributing to other people's repos, in
-  // the place showing. It counts merged PRs whatever kind the feed shows.
+  // the place showing, by the kind showing: PRs opened (in review or merged),
+  // merged only, or in review only.
   const ownBoard = current.scope === "own" || current.kind === "commits";
+  const states = current.kind === "merged" ? (["merged"] as const) : current.kind === "open" ? (["open"] as const) : (["merged", "open"] as const);
   const board = useMemo<Board>(
-    () => (ownBoard ? { own: true, rows: ownLeaderboard(entries) } : { own: false, rows: consistencyBoard(inPlace(entries, place, local), today) }),
-    [entries, ownBoard, place, local, today],
+    () => (ownBoard ? { own: true, rows: ownLeaderboard(entries) } : { own: false, rows: consistencyBoard(inPlace(entries, place, local), today, states) }),
+    [entries, ownBoard, place, local, today, current.kind], // eslint-disable-line react-hooks/exhaustive-deps
   );
   const matched = useMemo(
     () => queryActivity(scoped, current),
@@ -349,18 +351,24 @@ export function ActivityView({
   );
 }
 
-/** Where the board's pull requests went, in a sentence: the place the feed is filtered to. */
-function countedLabel(place: ActivityPlace, locale: Locale): string {
+/** What fills a week on the board, in a sentence: the kind and the place the feed is filtered to. */
+function countedLabel(current: ActivityFilters, locale: Locale): string {
+  const what =
+    current.kind === "merged"
+      ? tx(locale, "PR yang sudah di-merge", "a PR that has been merged")
+      : current.kind === "open"
+        ? tx(locale, "PR yang sedang direview", "a PR still in review")
+        : tx(locale, "PR yang dibuka", "a PR opened");
   const where =
-    place === "local"
+    current.place === "local"
       ? tx(locale, "repo lokal", "local repos")
-      : place === "global"
+      : current.place === "global"
         ? tx(locale, "repo global", "global repos")
         : tx(locale, "repo orang lain", "other people's repos");
   return tx(
     locale,
-    `Satu minggu terisi kalau ada PR ke ${where} yang dibuka minggu itu dan sudah di-merge. Yang dihitung rutinnya, bukan banyaknya. `,
-    `A week counts when a PR to ${where} opened that week has been merged. It counts keeping at it, not volume. `,
+    `Satu minggu terisi kalau ada ${what} ke ${where}, dihitung di minggu PR-nya dibuka. Yang dihitung rutinnya, bukan banyaknya. `,
+    `A week counts when it has ${what} to ${where}, in the week it was opened. It counts keeping at it, not volume. `,
   );
 }
 
@@ -460,7 +468,7 @@ type Board = { own: false; rows: ConsistencyRow[] } | { own: true; rows: Leaderb
 
 /**
  * The left column: who keeps contributing to other people's repositories —
- * weeks with a merged PR out of the last CONSISTENCY_WEEKS, and the streak
+ * weeks with a PR out of the last CONSISTENCY_WEEKS, and the streak
  * (see `consistencyBoard`) — or, on the Own scope, members' own work. Each row
  * also narrows the feed beside it to that person. A signed-in member outside
  * the shown rows still sees their own.
@@ -558,8 +566,8 @@ function Leaderboard({
             ? tx(locale, `Belum ada PR merged ke repo sendiri dalam ${SUMMARY_DAYS} hari terakhir.`, `No PRs merged into members' own repos in the last ${SUMMARY_DAYS} days.`)
             : tx(
                 locale,
-                `Belum ada PR merged dalam ${CONSISTENCY_WEEKS} minggu terakhir. Satu PR minggu ini sudah cukup untuk mulai!`,
-                `No merged PRs in the last ${CONSISTENCY_WEEKS} weeks. One PR this week is enough to start!`,
+                `Belum ada PR dalam ${CONSISTENCY_WEEKS} minggu terakhir. Satu PR minggu ini sudah cukup untuk mulai!`,
+                `No PRs in the last ${CONSISTENCY_WEEKS} weeks. One PR this week is enough to start!`,
               )}
         </p>
       ) : (
@@ -614,7 +622,7 @@ function Leaderboard({
       <p className="ax-board-foot">
         {own
           ? tx(locale, "Dihitung dari PR merged ke repo sendiri; seri dipecah jumlah commit. ", "Counts PRs merged into their own repos; commits break ties. ")
-          : countedLabel(current.place, locale)}
+          : countedLabel(current, locale)}
         {/* The full leaderboard — points, badges — is still to come. A plain
             Link: it leaves this page, where InstantLink only swaps the
             feed's filters in place. */}
@@ -626,14 +634,14 @@ function Leaderboard({
   );
 }
 
-/** The last CONSISTENCY_WEEKS weeks as dots, oldest first: filled when a PR landed. */
+/** The last CONSISTENCY_WEEKS weeks as dots, oldest first: filled when a PR was opened in it. */
 function WeekDots({ weeks, locale }: { weeks: boolean[]; locale: Locale }) {
   const filled = weeks.filter(Boolean).length;
   return (
     <span
       className="ax-weeks"
       role="img"
-      aria-label={tx(locale, `${filled} dari ${weeks.length} minggu terakhir ada PR merged`, `${filled} of the last ${weeks.length} weeks had a merged PR`)}
+      aria-label={tx(locale, `${filled} dari ${weeks.length} minggu terakhir ada PR`, `${filled} of the last ${weeks.length} weeks had a PR`)}
     >
       {weeks.map((on, index) => (
         <i key={index} className={on ? "is-on" : undefined} />

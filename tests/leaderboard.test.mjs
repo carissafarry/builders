@@ -26,7 +26,7 @@ test("a week starts on Monday", () => {
   assert.equal(weekStart("2026-11-01"), "2026-10-26", "a Sunday's week can begin last month");
 });
 
-test("the board counts weeks with a merged PR to other people's repos, not how many PRs", () => {
+test("the board counts weeks with a PR opened to other people's repos, not how many PRs", () => {
   const ana = person("ana", "Ana");
   const budi = person("budi", "Budi");
   const cici = person("cici", "Cici");
@@ -36,17 +36,21 @@ test("the board counts weeks with a merged PR to other people's repos, not how m
     pr(ana, "acme/one", "merged", "2026-10-26T03:00:00Z", "2026-10-20T03:00:00Z", "2026-10-13T03:00:00Z"),
     // Budi: five PRs, all this week.
     pr(budi, "acme/one", "merged", "2026-10-26T03:00:00Z", "2026-10-26T04:00:00Z", "2026-10-27T01:00:00Z", "2026-10-27T02:00:00Z", "2026-10-27T03:00:00Z"),
-    // In review does not count yet, and neither does their own work.
+    // In review counts, the week it was opened; their own work never does.
     pr(cici, "acme/three", "open", "2026-10-27T03:00:00Z"),
     { kind: "commit_summary", key: "cici:own", person: cici, commits: 40, merged: 9, repos: [], since: "2026-09-27", at: "2026-10-27T03:00:00Z" },
   ];
   const board = consistencyBoard(entries, "2026-10-27");
-  assert.deepEqual(board.map(({ person: who, filled, streak, prs }) => [who.handle, filled, streak, prs]), [["ana", 3, 3, 3], ["budi", 1, 1, 5]]);
+  assert.deepEqual(board.map(({ person: who, filled, streak, prs }) => [who.handle, filled, streak, prs]), [["ana", 3, 3, 3], ["budi", 1, 1, 5], ["cici", 1, 1, 1]]);
+
+  // Split by kind, as the feed's filter asks: merged only, or in review only.
+  assert.deepEqual(handles(consistencyBoard(entries, "2026-10-27", ["merged"])), ["ana", "budi"]);
+  assert.deepEqual(handles(consistencyBoard(entries, "2026-10-27", ["open"])), ["cici"]);
   assert.equal(board[0].weeks.length, 12);
   assert.deepEqual(board[0].weeks.slice(-4), [false, true, true, true], "oldest first, this week last");
 });
 
-test("a PR counts for the week it was opened, once it is merged", () => {
+test("a merged PR counts for the week it was opened, not the week it landed", () => {
   const ana = person("ana");
   // Opened on 12 Oct, merged on the 27th: the week of the 12th is filled.
   const [row] = consistencyBoard([pr(ana, "acme/one", "merged", ["2026-10-12T03:00:00Z", "2026-10-27T03:00:00Z"])], "2026-10-27");

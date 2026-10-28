@@ -32,8 +32,8 @@ const PLANNED: [string, string, string, string][] = [
   [
     "Konsistensi, bukan volume",
     "Consistency, not volume",
-    "1 minggu 1 PR: yang dihitung berapa minggu kamu punya PR merged ke repo orang lain, bukan berapa banyak PR-nya. Memecah satu perubahan jadi lima PR nggak dapat apa-apa.",
-    "One PR a week: what counts is how many weeks you had a PR merged into somebody else's repo, not how many PRs. Splitting one change into five earns nothing.",
+    "1 minggu 1 PR: yang dihitung berapa minggu kamu membuka PR ke repo orang lain—masih direview atau sudah di-merge—bukan berapa banyak PR-nya. Memecah satu perubahan jadi lima PR nggak dapat apa-apa.",
+    "One PR a week: what counts is how many weeks you opened a PR to somebody else's repo—in review or merged—not how many PRs. Splitting one change into five earns nothing.",
   ],
   [
     "Streak",
@@ -76,7 +76,7 @@ const REAL_SHOWN = 3;
 
 /**
  * The board as it will look. The first rows are real — the leaders by weeks
- * with a merged PR, the ranking the activity page already shows — and clear;
+ * with a PR, the ranking the activity page already shows — and clear;
  * below them made-up rows fade into a blur, under a "coming soon" lock that
  * points to #186. Badges do not exist yet, so the real rows show a dash there.
  */
@@ -106,7 +106,7 @@ function LockedPreview({ locale, real }: { locale: Locale; real: ConsistencyRow[
             <th>{tx(locale, "Member", "Member")}</th>
             <th>{tx(locale, "Minggu", "Weeks")}</th>
             <th>Streak</th>
-            <th className="lb-wide">{tx(locale, "PR merged", "Merged PRs")}</th>
+            <th className="lb-wide">PR</th>
             <th className="lb-wide">Repo</th>
             <th className="lb-wide">Badge</th>
           </tr>
@@ -178,7 +178,7 @@ function LockedPreview({ locale, real }: { locale: Locale; real: ConsistencyRow[
  *
  * Badges and an all-time board are still being worked out on #186, so this
  * page says what is planned and asks for ideas there. The ranking itself —
- * weeks with a merged PR out of the last twelve — already sits beside the
+ * weeks with a PR out of the last twelve — already sits beside the
  * activity page's feed (`/`); this page points to it.
  */
 export default async function LeaderboardPage() {
