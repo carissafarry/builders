@@ -24,6 +24,14 @@ import nextEnv from "@next/env";
 nextEnv.loadEnvConfig(process.cwd(), false, { info() {}, error() {} });
 
 const oss = process.env.NEXT_PUBLIC_SITE === "oss";
+
+// `next build` inlines NEXT_PUBLIC_* values, so a build made with a real
+// Supabase in .env.local reads that database whatever `next start` is given,
+// and the seed-only member and project below are not there. Skip rather than
+// fail on such a build; CI builds in seed mode.
+const skip = process.env.NEXT_PUBLIC_SUPABASE_URL
+  ? "built against a real Supabase: empty NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY, build, then run again"
+  : false;
 const label = oss ? "oss" : "builders";
 
 const BUILDERS_ORIGIN = "https://builders.swegrowth.id";
@@ -139,11 +147,10 @@ async function untilReady(url, deadline) {
 }
 
 before(async () => {
+  if (skip) return;
   const port = await freePort();
   base = `http://127.0.0.1:${port}`;
   server = spawn(process.execPath, ["node_modules/next/dist/bin/next", "start", "-p", String(port), "-H", "127.0.0.1"], {
-    // No database, whatever the machine has in its environment.
-    env: { ...process.env, NEXT_PUBLIC_SUPABASE_URL: "", NEXT_PUBLIC_SUPABASE_ANON_KEY: "" },
     stdio: ["ignore", "pipe", "pipe"],
   });
   const collect = (chunk) => {
@@ -159,7 +166,7 @@ after(() => {
 });
 
 for (const path of pages) {
-  test(`${label}: ${path} renders with a heading`, async () => {
+  test(`${label}: ${path} renders with a heading`, { skip }, async () => {
     const response = await fetch(base + path, { redirect: "manual" });
     assert.equal(response.status, 200);
     assert.match(await response.text(), /<h1[\s>]/);
@@ -167,15 +174,17 @@ for (const path of pages) {
 }
 
 for (const [path, to] of guestOnly) {
-  test(`${label}: ${path} sends a guest to ${to}`, async () => {
+  test(`${label}: ${path} sends a guest to ${to}`, { skip }, async () => {
     const response = await fetch(base + path, { redirect: "manual" });
     assert.equal(response.status, 200);
+    // How Next streams a redirect thrown after the status went out; an upgrade
+    // that changes the format breaks this line, not the redirect itself.
     assert.ok((await response.text()).includes(`NEXT_REDIRECT;replace;${to};307;`));
   });
 }
 
 for (const [path, title] of missing) {
-  test(`${label}: ${path} says it was not found`, async () => {
+  test(`${label}: ${path} says it was not found`, { skip }, async () => {
     const response = await fetch(base + path, { redirect: "manual" });
     assert.equal(response.status, 200);
     assert.match((await response.text()).match(/<title[^>]*>([^<]*)<\/title>/)?.[1] ?? "", title);
@@ -183,7 +192,7 @@ for (const [path, title] of missing) {
 }
 
 for (const [from, to] of redirects) {
-  test(`${label}: ${from} redirects to ${to}`, async () => {
+  test(`${label}: ${from} redirects to ${to}`, { skip }, async () => {
     const response = await fetch(base + from, { redirect: "manual" });
     assert.ok([307, 308].includes(response.status), `expected a redirect, got ${response.status}`);
     assert.equal(response.headers.get("location"), to);

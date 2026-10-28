@@ -274,7 +274,8 @@ checks whichever site `NEXT_PUBLIC_SITE` names, so CI builds the oss site
 the two is caught.
 
 Build in seed mode to match CI: a `.env.local` with real Supabase credentials
-is inlined into the build and the pages read that database instead. A
+is inlined into the build and the pages read that database instead, so the
+test skips itself on such a build. A
 `NEXT_PUBLIC_SITE` in `.env.local` picks the site for the build too; the test
 reads it the same way, so set the variable in the shell when you want the other
 site.
