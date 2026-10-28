@@ -44,6 +44,22 @@ const pages = [
   ...(oss ? ["/recommend", "/leaderboard"] : ["/new", `/projects/${SEED_PROJECT}`]),
 ];
 
+// Pages that need an account. A guest gets a 200 whose body carries the
+// redirect to /signin, because it streams in after the status is sent. [path,
+// where the guest is sent].
+const guestOnly = [
+  ["/admin", "/signin?next=%2Fadmin"],
+  ["/account/profile", "/signin?next=%2Faccount%2Fprofile"],
+  ["/get-started", "/signin?next=%2Fget-started"],
+  ["/signup", "/signin"],
+  ...(oss
+    ? []
+    : [
+        ["/inbox", "/signin?next=%2Finbox"],
+        [`/projects/${SEED_PROJECT}/edit`, `/signin?next=%2Fprojects%2F${SEED_PROJECT}%2Fedit`],
+      ]),
+];
+
 // [from, where it should land]. A path stays on the site; a full URL leaves it.
 // /activity is the home page now, so it redirects rather than rendering.
 const redirects = [
@@ -106,6 +122,14 @@ for (const path of pages) {
     const response = await fetch(base + path, { redirect: "manual" });
     assert.equal(response.status, 200);
     assert.match(await response.text(), /<h1[\s>]/);
+  });
+}
+
+for (const [path, to] of guestOnly) {
+  test(`${label}: ${path} sends a guest to ${to}`, async () => {
+    const response = await fetch(base + path, { redirect: "manual" });
+    assert.equal(response.status, 200);
+    assert.ok((await response.text()).includes(`NEXT_REDIRECT;replace;${to};307;`));
   });
 }
 
